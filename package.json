@@ -1,0 +1,12 @@
+{
+  "name": "menu-root",
+  "private": true,
+  "scripts": {
+    "back":  "node scripts/start-backend.js",
+    "front": "node scripts/start-frontend.js",
+    "dev":   "concurrently --names \"BACK,FRONT\" --prefix-colors \"blue,green\" \"npm run back\" \"npm run front\""
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.2"
+  }
+}
