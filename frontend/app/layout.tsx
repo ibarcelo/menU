@@ -1,11 +1,11 @@
 import type { Metadata } from "next";
 import { Toaster } from "react-hot-toast";
+import { AuthProvider } from "@/lib/auth-context";
 import "./globals.css";
 
 export const metadata: Metadata = {
   title: "menU – Scan & Share Your Order",
   description: "Scan a restaurant menu and organize your group order in seconds.",
-  // Viewport handled via <head> tag below for Next.js 14 compatibility
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
@@ -19,7 +19,9 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <meta name="theme-color" content="#FF6B35" />
       </head>
       <body className="bg-gray-50 text-gray-900 antialiased min-h-screen">
-        {children}
+        <AuthProvider>
+          {children}
+        </AuthProvider>
         <Toaster
           position="top-center"
           toastOptions={{

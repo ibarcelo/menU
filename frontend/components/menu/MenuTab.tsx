@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback, Dispatch, SetStateAction } from "react";
-import { Plus, Loader2, ChevronDown, ChevronRight } from "lucide-react";
+import { ListPlus, Loader2, ChevronDown, ChevronRight } from "lucide-react";
 import toast from "react-hot-toast";
 import { supabase } from "@/lib/supabase";
 import { getMenu, upsertOrder, addMenuItem, updateMenuItem, deleteMenuItem } from "@/lib/api";
@@ -17,14 +17,14 @@ interface Props {
   isHost: boolean;
   cart: Record<string, number>;
   setCart: Dispatch<SetStateAction<Record<string, number>>>;
+  onGoToOrders: () => void;
 }
 
-export default function MenuTab({ sessionId, session, participantId, cart, setCart }: Props) {
+export default function MenuTab({ sessionId, session, participantId, cart, setCart, onGoToOrders }: Props) {
   const [menuData, setMenuData] = useState<MenuData | null>(null);
   const [loading, setLoading] = useState(true);
   const [editItem, setEditItem] = useState<MenuItem | null>(null);
   const [showAddModal, setShowAddModal] = useState(false);
-  // Categories start expanded; set tracks which are collapsed
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
 
   function toggleCategory(name: string) {
@@ -36,7 +36,6 @@ export default function MenuTab({ sessionId, session, participantId, cart, setCa
     });
   }
 
-  // ── Load menu ──────────────────────────────────────────────────
   const loadMenu = useCallback(async () => {
     try {
       const data = await getMenu(sessionId);
@@ -50,7 +49,6 @@ export default function MenuTab({ sessionId, session, participantId, cart, setCa
 
   useEffect(() => { loadMenu(); }, [loadMenu]);
 
-  // ── Realtime: menu_items ───────────────────────────────────────
   useEffect(() => {
     const channel = supabase
       .channel(`menu-${sessionId}`)
@@ -60,7 +58,6 @@ export default function MenuTab({ sessionId, session, participantId, cart, setCa
     return () => { supabase.removeChannel(channel); };
   }, [sessionId, loadMenu]);
 
-  // ── Realtime: my orders (keep cart in sync from other devices) ─
   useEffect(() => {
     if (!participantId) return;
     const channel = supabase
@@ -82,49 +79,35 @@ export default function MenuTab({ sessionId, session, participantId, cart, setCa
     return () => { supabase.removeChannel(channel); };
   }, [participantId, setCart]);
 
-  // ── Order actions ──────────────────────────────────────────────
   async function handleQuantityChange(itemId: string, delta: number) {
     const current = cart[itemId] ?? 0;
     const next = Math.max(0, current + delta);
-
-    setCart((prev) => {
-      const updated = { ...prev };
-      if (next === 0) delete updated[itemId];
-      else updated[itemId] = next;
-      return updated;
-    });
-
+    setCart((prev) => { const u = { ...prev }; if (next === 0) delete u[itemId]; else u[itemId] = next; return u; });
     try {
       await upsertOrder(sessionId, participantId, itemId, next);
     } catch {
-      setCart((prev) => {
-        const rolled = { ...prev };
-        if (current === 0) delete rolled[itemId];
-        else rolled[itemId] = current;
-        return rolled;
-      });
-      toast.error("Could not update order");
+      setCart((prev) => { const r = { ...prev }; if (current === 0) delete r[itemId]; else r[itemId] = current; return r; });
+      toast.error("No se pudo actualizar el pedido");
     }
   }
 
-  // ── Edit actions ───────────────────────────────────────────────
   async function handleSaveEdit(item: Partial<MenuItem>) {
     if (!item.id) return;
     try {
       await updateMenuItem(sessionId, item.id, { name: item.name, price: item.price, description: item.description, category: item.category });
       setEditItem(null);
-      toast.success("Item updated");
+      toast.success("Plato actualizado");
     } catch {
-      toast.error("Could not save changes");
+      toast.error("No se pudo guardar");
     }
   }
 
   async function handleDelete(itemId: string) {
     try {
       await deleteMenuItem(sessionId, itemId);
-      toast.success("Item removed");
+      toast.success("Plato eliminado");
     } catch {
-      toast.error("Could not delete item");
+      toast.error("No se pudo eliminar");
     }
   }
 
@@ -132,9 +115,9 @@ export default function MenuTab({ sessionId, session, participantId, cart, setCa
     try {
       await addMenuItem(sessionId, item);
       setShowAddModal(false);
-      toast.success("Item added");
+      toast.success("Plato añadido");
     } catch {
-      toast.error("Could not add item");
+      toast.error("No se pudo añadir");
     }
   }
 
@@ -144,7 +127,7 @@ export default function MenuTab({ sessionId, session, participantId, cart, setCa
     return (
       <div className="flex flex-col items-center justify-center py-20 gap-3">
         <Loader2 className="w-7 h-7 text-brand animate-spin" />
-        <p className="text-gray-400 text-sm">Loading menu…</p>
+        <p className="text-gray-400 text-sm">Cargando menú…</p>
       </div>
     );
   }
@@ -155,13 +138,13 @@ export default function MenuTab({ sessionId, session, participantId, cart, setCa
         {session.status === "processing" ? (
           <>
             <Loader2 className="w-7 h-7 text-amber-500 animate-spin" />
-            <p className="font-semibold text-gray-700">AI is reading the menu…</p>
-            <p className="text-gray-400 text-sm">This takes about 15 seconds</p>
+            <p className="font-semibold text-gray-700">La IA está leyendo el menú…</p>
+            <p className="text-gray-400 text-sm">Tarda unos 15 segundos</p>
           </>
         ) : (
           <>
-            <p className="font-semibold text-gray-700">No menu yet</p>
-            <p className="text-gray-400 text-sm">Go to Scan tab to photograph the menu</p>
+            <p className="font-semibold text-gray-700">Sin menú todavía</p>
+            <p className="text-gray-400 text-sm">Ve a Escanear para fotografiar el menú</p>
           </>
         )}
       </div>
@@ -172,12 +155,10 @@ export default function MenuTab({ sessionId, session, participantId, cart, setCa
     <div className="pb-4">
       {menuData.categories.map((category) => {
         const isCollapsed = collapsed.has(category.name);
-        // Count how many items in this category are in the cart
         const cartCount = category.items.reduce((s, i) => s + (cart[i.id] ?? 0), 0);
 
         return (
           <section key={category.name}>
-            {/* Tappable category header */}
             <button
               onClick={() => toggleCategory(category.name)}
               className="sticky top-0 w-full bg-gray-50 z-10 px-4 py-3 border-b border-gray-100 flex items-center justify-between active:bg-gray-100 transition-colors"
@@ -196,12 +177,11 @@ export default function MenuTab({ sessionId, session, participantId, cart, setCa
               </div>
               {cartCount > 0 && (
                 <span className="bg-brand text-white text-xs font-bold px-2 py-0.5 rounded-full">
-                  {cartCount} selected
+                  {cartCount} seleccionados
                 </span>
               )}
             </button>
 
-            {/* Items — hidden when collapsed */}
             {!isCollapsed && (
               <div className="divide-y divide-gray-100">
                 {category.items.map((item) => (
@@ -220,21 +200,26 @@ export default function MenuTab({ sessionId, session, participantId, cart, setCa
         );
       })}
 
-      {/* Add item FAB */}
+      {/* FAB to add a custom dish — floats above cart bar if visible */}
       <button
         onClick={() => setShowAddModal(true)}
-        className="fixed bottom-24 right-5 w-14 h-14 bg-brand text-white rounded-full shadow-lg flex items-center justify-center z-10 active:scale-90 transition-transform"
-        aria-label="Add item"
+        className={`fixed right-4 flex items-center gap-2 bg-gray-800 text-white font-bold text-sm px-4 py-3 rounded-2xl shadow-lg z-10 active:scale-95 transition-transform ${
+          totalInCart > 0 ? "bottom-[140px]" : "bottom-24"
+        }`}
+        aria-label="Añadir plato"
       >
-        <Plus className="w-7 h-7" />
+        <ListPlus className="w-5 h-5" />
+        Añadir plato
       </button>
 
+      {/* Cart bar — has both "my order" sheet and "total" tab navigation */}
       {totalInCart > 0 && (
         <OrderCartBar
           sessionId={sessionId}
           participantId={participantId}
           cart={cart}
           menuData={menuData}
+          onGoToOrders={onGoToOrders}
         />
       )}
 

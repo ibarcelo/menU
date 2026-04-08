@@ -6,7 +6,7 @@
  */
 
 import { useEffect, useState, useCallback } from "react";
-import { Loader2, Receipt } from "lucide-react";
+import { Loader2, Receipt, Bookmark } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { getOrders } from "@/lib/api";
 import type { OrdersSummary } from "@/types";
@@ -15,9 +15,10 @@ import clsx from "clsx";
 interface Props {
   sessionId: string;
   participantId: string;
+  onSaveVisit: (summary: OrdersSummary) => void;
 }
 
-export default function OrdersTab({ sessionId, participantId }: Props) {
+export default function OrdersTab({ sessionId, participantId, onSaveVisit }: Props) {
   const [summary, setSummary] = useState<OrdersSummary | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -54,6 +55,9 @@ export default function OrdersTab({ sessionId, participantId }: Props) {
 
     return () => { supabase.removeChannel(channel); };
   }, [sessionId, loadOrders]);
+
+  const myOrder = summary?.participants.find((p) => p.participant_id === participantId);
+  const hasMyOrder = (myOrder?.items.length ?? 0) > 0;
 
   if (loading) {
     return (
@@ -144,6 +148,17 @@ export default function OrdersTab({ sessionId, participantId }: Props) {
           </div>
           <span className="text-3xl font-black">${summary.grand_total.toFixed(2)}</span>
         </div>
+      )}
+
+      {/* Save visit CTA */}
+      {hasMyOrder && (
+        <button
+          onClick={() => onSaveVisit(summary)}
+          className="mt-4 w-full flex items-center justify-center gap-2 border-2 border-brand text-brand font-bold text-base rounded-2xl py-3.5 active:scale-95 transition-transform hover:bg-orange-50"
+        >
+          <Bookmark className="w-5 h-5" />
+          Save my visit
+        </button>
       )}
 
       {/* Disclaimer */}

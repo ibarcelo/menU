@@ -23,47 +23,57 @@ export default function ScanTab({ sessionId, session, onSessionUpdate, onMenuRea
   const cameraInputRef = useRef<HTMLInputElement>(null);
   const galleryInputRef = useRef<HTMLInputElement>(null);
   const pollRef = useRef<NodeJS.Timeout | null>(null);
-  const firedRef = useRef(false); // prevents duplicate toasts
+  // scanToken changes each time a new upload starts — old interval callbacks
+  // check their captured token against the current one and bail if stale.
+  const scanTokenRef = useRef(0);
 
-  const stopPolling = useCallback(() => {
-    if (pollRef.current) {
-      clearInterval(pollRef.current);
-      pollRef.current = null;
-    }
-  }, []);
+  // Stable refs so interval callbacks never close over stale props
+  const onSessionUpdateRef = useRef(onSessionUpdate);
+  const onMenuReadyRef = useRef(onMenuReady);
+  useEffect(() => { onSessionUpdateRef.current = onSessionUpdate; }, [onSessionUpdate]);
+  useEffect(() => { onMenuReadyRef.current = onMenuReady; }, [onMenuReady]);
 
-  useEffect(() => {
-    if (session.status !== "processing") {
-      stopPolling();
-      return;
-    }
-
-    firedRef.current = false; // reset when a new scan starts
-    if (pollRef.current) return; // already polling
+  function startPolling() {
+    if (pollRef.current) return; // already running
+    const myToken = scanTokenRef.current;
 
     pollRef.current = setInterval(async () => {
-      if (firedRef.current) return; // already handled
+      // Bail if a newer scan has started or polling was stopped
+      if (scanTokenRef.current !== myToken) return;
       try {
         const updated = await getSession(sessionId);
+        if (scanTokenRef.current !== myToken) return; // check again after await
         if (updated.status === "ready" && updated.menu_item_count > 0) {
-          firedRef.current = true;
-          stopPolling();
-          onSessionUpdate(updated);
-          toast.success(`${updated.menu_item_count} dishes found!`);
-          onMenuReady();
+          clearInterval(pollRef.current!);
+          pollRef.current = null;
+          scanTokenRef.current++; // invalidate this token
+          onSessionUpdateRef.current(updated);
+          toast.success(`${updated.menu_item_count} platos encontrados`);
+          onMenuReadyRef.current();
         } else if (updated.status === "error") {
-          firedRef.current = true;
-          stopPolling();
-          onSessionUpdate(updated);
-          toast.error("Could not read the menu. Try again with clearer photos.");
+          clearInterval(pollRef.current!);
+          pollRef.current = null;
+          scanTokenRef.current++;
+          onSessionUpdateRef.current(updated);
+          toast.error("No se pudo leer el menú. Prueba con fotos más claras.");
         }
       } catch {
         // network blip, keep polling
       }
     }, 2500);
+  }
 
-    return stopPolling;
-  }, [session.status, sessionId, onSessionUpdate, onMenuReady, stopPolling]);
+  // Start polling if session is already processing when component mounts
+  // (e.g. user navigates back to Scan tab mid-processing)
+  useEffect(() => {
+    if (session.status === "processing") {
+      startPolling();
+    }
+    return () => {
+      if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null; }
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // ── File selection ─────────────────────────────────────────────
   function handleFiles(files: FileList | null) {
@@ -94,11 +104,15 @@ export default function ScanTab({ sessionId, session, onSessionUpdate, onMenuRea
   async function handleProcess() {
     if (images.length === 0) return;
     setUploading(true);
+    // Invalidate any previous polling token and stop old interval
+    scanTokenRef.current++;
+    if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null; }
     onSessionUpdate({ status: "processing" });
     try {
       await uploadMenuImages(sessionId, images);
       setImages([]);
       setPreviews([]);
+      startPolling(); // begin polling for this specific scan
     } catch (err) {
       toast.error("Upload failed. Check your connection.");
       onSessionUpdate({ status: "scanning" });

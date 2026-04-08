@@ -10,19 +10,22 @@
  * Real-time updates arrive via Supabase Realtime subscriptions.
  */
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import { useRouter } from "next/navigation";
 import toast from "react-hot-toast";
-import { UtensilsCrossed, ScanLine, ListOrdered, Receipt } from "lucide-react";
+import { UtensilsCrossed, ScanLine, ListOrdered, Receipt, UserCircle2 } from "lucide-react";
 
-import { getStorageKey, type Session, type Participant } from "@/types";
+import { getStorageKey, type Session, type Participant, type OrdersSummary } from "@/types";
 import { getSession, joinSession, heartbeat as sendHeartbeat } from "@/lib/api";
+import { useAuth } from "@/lib/auth-context";
 
 import NameGate from "@/components/session/NameGate";
 import QRShare from "@/components/session/QRShare";
 import ScanTab from "@/components/scan/ScanTab";
 import MenuTab from "@/components/menu/MenuTab";
 import OrdersTab from "@/components/orders/OrdersTab";
+import AuthModal from "@/components/auth/AuthModal";
+import SaveVisitModal from "@/components/session/SaveVisitModal";
 
 type Tab = "scan" | "menu" | "orders";
 
@@ -33,6 +36,8 @@ interface PageProps {
 export default function SessionPage({ params }: PageProps) {
   const sessionId = params.id;
   const router = useRouter();
+  const { user } = useAuth();
+  const prevUserRef = useRef<string | null>(null);
 
   const [session, setSession] = useState<Session | null>(null);
   const [participant, setParticipant] = useState<Participant | null>(null);
@@ -40,8 +45,26 @@ export default function SessionPage({ params }: PageProps) {
   const [activeTab, setActiveTab] = useState<Tab>("menu");
   const [showQR, setShowQR] = useState(false);
   const [loading, setLoading] = useState(true);
-  // Cart lifted here so it survives tab switches
   const [cart, setCart] = useState<Record<string, number>>({});
+
+  // Auth & save modals
+  const [showAuthModal, setShowAuthModal] = useState(false);
+  const [saveModalSummary, setSaveModalSummary] = useState<OrdersSummary | null>(null);
+  const pendingSummaryRef = useRef<OrdersSummary | null>(null);
+
+  // Show welcome toast when user signs in
+  useEffect(() => {
+    if (user && prevUserRef.current === null) {
+      toast.success("You're signed in! You can now save your visit.");
+      // Auto-open save modal if save was pending
+      if (pendingSummaryRef.current) {
+        setSaveModalSummary(pendingSummaryRef.current);
+        pendingSummaryRef.current = null;
+        setShowAuthModal(false);
+      }
+    }
+    prevUserRef.current = user?.id ?? null;
+  }, [user]);
 
   // ── Restore identity from localStorage ─────────────────
   useEffect(() => {
@@ -68,7 +91,6 @@ export default function SessionPage({ params }: PageProps) {
     getSession(sessionId)
       .then((s) => {
         setSession(s);
-        // If session is ready and we just arrived, open menu tab
         if (s.status === "ready" && s.menu_item_count > 0) {
           setActiveTab("menu");
         } else {
@@ -102,7 +124,7 @@ export default function SessionPage({ params }: PageProps) {
         setParticipant(p);
       } catch (err) {
         toast.error("Could not join. Name might be taken.");
-        throw err; // let NameGate handle loading state
+        throw err;
       }
     },
     [sessionId]
@@ -113,16 +135,29 @@ export default function SessionPage({ params }: PageProps) {
     setSession((prev) => (prev ? { ...prev, ...updated } : prev));
   }, []);
 
+  // ── Save visit trigger ──────────────────────────────────
+  const handleSaveVisit = useCallback(
+    (summary: OrdersSummary) => {
+      if (!user) {
+        pendingSummaryRef.current = summary;
+        setShowAuthModal(true);
+      } else {
+        setSaveModalSummary(summary);
+      }
+    },
+    [user]
+  );
+
   // ──────────────────────────────────────────────
   if (loading) return <FullPageSpinner />;
   if (!session) return null;
 
-  // Show name gate if not yet joined
   if (!participant) {
     return (
       <NameGate
         sessionId={sessionId}
         restaurant={session.restaurant}
+        defaultName={user?.user_metadata?.username ?? ""}
         onJoin={handleJoin}
       />
     );
@@ -134,18 +169,36 @@ export default function SessionPage({ params }: PageProps) {
       <header className="bg-white border-b border-gray-100 px-4 py-3 flex items-center justify-between safe-top">
         <div className="flex items-center gap-2">
           <UtensilsCrossed className="w-5 h-5 text-brand" />
-          <span className="font-bold text-gray-900 truncate max-w-[160px]">
+          <span className="font-bold text-gray-900 truncate max-w-[140px]">
             {session.restaurant ?? "Our Table"}
           </span>
         </div>
-        <div className="flex items-center gap-3">
-          <span className="text-sm text-gray-400">{participant.name}</span>
+        <div className="flex items-center gap-2">
+          <span className="text-sm text-gray-400 truncate max-w-[80px]">{participant.name}</span>
           <button
             onClick={() => setShowQR(true)}
             className="bg-gray-100 text-gray-600 text-xs font-semibold px-3 py-1.5 rounded-full"
           >
             Share
           </button>
+          {/* Profile / sign-in button */}
+          {user ? (
+            <button
+              onClick={() => router.push("/profile")}
+              className="w-8 h-8 rounded-full bg-orange-50 flex items-center justify-center"
+              title="Profile"
+            >
+              <UserCircle2 className="w-5 h-5 text-brand" />
+            </button>
+          ) : (
+            <button
+              onClick={() => setShowAuthModal(true)}
+              className="w-8 h-8 rounded-full bg-gray-100 flex items-center justify-center"
+              title="Sign in"
+            >
+              <UserCircle2 className="w-5 h-5 text-gray-400" />
+            </button>
+          )}
         </div>
       </header>
 
@@ -168,10 +221,15 @@ export default function SessionPage({ params }: PageProps) {
             isHost={isHost}
             cart={cart}
             setCart={setCart}
+            onGoToOrders={() => setActiveTab("orders")}
           />
         )}
         {activeTab === "orders" && (
-          <OrdersTab sessionId={sessionId} participantId={participant.id} />
+          <OrdersTab
+            sessionId={sessionId}
+            participantId={participant.id}
+            onSaveVisit={handleSaveVisit}
+          />
         )}
       </div>
 
@@ -203,9 +261,25 @@ export default function SessionPage({ params }: PageProps) {
 
       {/* QR share modal */}
       {showQR && (
-        <QRShare
-          sessionId={sessionId}
-          onClose={() => setShowQR(false)}
+        <QRShare sessionId={sessionId} onClose={() => setShowQR(false)} />
+      )}
+
+      {/* Auth modal */}
+      {showAuthModal && (
+        <AuthModal
+          reason="Sign in to save this visit to your profile."
+          onClose={() => setShowAuthModal(false)}
+        />
+      )}
+
+      {/* Save visit modal */}
+      {saveModalSummary && session && (
+        <SaveVisitModal
+          session={session}
+          summary={saveModalSummary}
+          participantId={participant.id}
+          onClose={() => setSaveModalSummary(null)}
+          onSaved={() => setSaveModalSummary(null)}
         />
       )}
     </div>

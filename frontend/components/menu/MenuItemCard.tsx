@@ -1,6 +1,6 @@
 "use client";
 
-import { Pencil, Minus, Plus } from "lucide-react";
+import { Pencil, Minus, Plus, ShoppingCart } from "lucide-react";
 import type { MenuItem } from "@/types";
 import clsx from "clsx";
 
@@ -32,7 +32,7 @@ export default function MenuItemCard({ item, quantity, onAdd, onRemove, onEdit }
           <button
             onClick={onEdit}
             className="shrink-0 p-1.5 text-gray-300 active:text-gray-500"
-            aria-label="Edit item"
+            aria-label="Editar"
           >
             <Pencil className="w-4 h-4" />
           </button>
@@ -63,30 +63,33 @@ export default function MenuItemCard({ item, quantity, onAdd, onRemove, onEdit }
         </div>
       </div>
 
-      {/* Quantity controls — big touch targets */}
+      {/* Quantity controls */}
       <div className="shrink-0">
         {hasOrder ? (
+          /* ── Quantity stepper (small, round) ── */
           <div className="flex items-center gap-2">
             <button
               onClick={onRemove}
               className="w-9 h-9 rounded-full bg-gray-100 flex items-center justify-center active:bg-gray-200 transition-colors"
             >
-              <Minus className="w-4 h-4" />
+              <Minus className="w-4 h-4 text-gray-600" />
             </button>
             <span className="w-6 text-center text-base font-bold text-brand">{quantity}</span>
             <button
               onClick={onAdd}
-              className="w-9 h-9 rounded-full bg-brand flex items-center justify-center active:opacity-80 transition-opacity"
+              className="w-9 h-9 rounded-full bg-brand/10 border-2 border-brand flex items-center justify-center active:bg-brand/20 transition-colors"
             >
-              <Plus className="w-4 h-4 text-white" />
+              <Plus className="w-4 h-4 text-brand" />
             </button>
           </div>
         ) : (
+          /* ── Initial add button — pill with cart icon, clearly different ── */
           <button
             onClick={onAdd}
-            className="w-11 h-11 rounded-full bg-brand flex items-center justify-center active:scale-90 transition-transform shadow"
+            className="flex items-center gap-1.5 bg-brand text-white font-bold text-sm px-4 py-2.5 rounded-xl active:scale-95 transition-transform shadow-sm"
           >
-            <Plus className="w-5 h-5 text-white" />
+            <ShoppingCart className="w-4 h-4" />
+            Añadir
           </button>
         )}
       </div>

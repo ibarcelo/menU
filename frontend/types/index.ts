@@ -79,6 +79,30 @@ export interface OrdersSummary {
   item_count: number;
 }
 
+// ── Saved visits (user profile) ───────────────
+
+export interface SavedVisitItem {
+  menu_item_id: string;
+  name: string;
+  price: number | null;
+  quantity: number;
+  rating: number | null;   // 1–5
+  note: string | null;
+  subtotal: number | null;
+}
+
+export interface SavedVisit {
+  id: string;
+  user_id: string;
+  restaurant_name: string;
+  visited_at: string;
+  restaurant_rating: number | null;  // 1–5
+  general_note: string | null;
+  items: SavedVisitItem[];
+  grand_total: number | null;
+  created_at: string;
+}
+
 // localStorage keys
 export const getStorageKey = (sessionId: string) => ({
   participantId: `menu_participant_id_${sessionId}`,
