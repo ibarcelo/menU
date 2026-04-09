@@ -4,15 +4,22 @@ import { Pencil, Minus, Plus, ShoppingCart } from "lucide-react";
 import type { MenuItem } from "@/types";
 import clsx from "clsx";
 
+export interface OtherOrderer {
+  participantId: string;
+  name: string;
+  color: string; // tailwind bg class
+}
+
 interface Props {
   item: MenuItem;
   quantity: number;
+  others: OtherOrderer[]; // other participants who ordered this item
   onAdd: () => void;
   onRemove: () => void;
   onEdit: () => void;
 }
 
-export default function MenuItemCard({ item, quantity, onAdd, onRemove, onEdit }: Props) {
+export default function MenuItemCard({ item, quantity, others, onAdd, onRemove, onEdit }: Props) {
   const hasOrder = quantity > 0;
 
   return (
@@ -29,13 +36,41 @@ export default function MenuItemCard({ item, quantity, onAdd, onRemove, onEdit }
           )}>
             {item.name}
           </h4>
-          <button
-            onClick={onEdit}
-            className="shrink-0 p-1.5 text-gray-300 active:text-gray-500"
-            aria-label="Editar"
-          >
-            <Pencil className="w-4 h-4" />
-          </button>
+          <div className="flex items-center gap-1 shrink-0">
+            {others.length > 0 && (
+              <div className="flex items-center">
+                {others.slice(0, 4).map((o) => (
+                  <div
+                    key={o.participantId}
+                    title={o.name}
+                    className={clsx(
+                      "w-6 h-6 rounded-full flex items-center justify-center text-white font-bold ring-2 ring-white",
+                      o.color,
+                      "-ml-1.5 first:ml-0"
+                    )}
+                    style={{ fontSize: 11 }}
+                  >
+                    {o.name.charAt(0).toUpperCase()}
+                  </div>
+                ))}
+                {others.length > 4 && (
+                  <div
+                    className="-ml-1.5 w-6 h-6 rounded-full bg-gray-300 flex items-center justify-center text-white font-bold ring-2 ring-white"
+                    style={{ fontSize: 11 }}
+                  >
+                    +{others.length - 4}
+                  </div>
+                )}
+              </div>
+            )}
+            <button
+              onClick={onEdit}
+              className="p-1.5 text-gray-300 active:text-gray-500"
+              aria-label="Editar"
+            >
+              <Pencil className="w-4 h-4" />
+            </button>
+          </div>
         </div>
 
         {item.description && (
@@ -44,7 +79,7 @@ export default function MenuItemCard({ item, quantity, onAdd, onRemove, onEdit }
           </p>
         )}
 
-        <div className="flex items-center gap-2 mt-1.5">
+        <div className="flex items-center gap-2 mt-1.5 flex-wrap">
           <span className={clsx(
             "text-base font-bold",
             item.special_price ? "text-amber-500" : "text-gray-900"
@@ -60,13 +95,13 @@ export default function MenuItemCard({ item, quantity, onAdd, onRemove, onEdit }
               {tag}
             </span>
           ))}
+
         </div>
       </div>
 
       {/* Quantity controls */}
       <div className="shrink-0">
         {hasOrder ? (
-          /* ── Quantity stepper (small, round) ── */
           <div className="flex items-center gap-2">
             <button
               onClick={onRemove}
@@ -83,7 +118,6 @@ export default function MenuItemCard({ item, quantity, onAdd, onRemove, onEdit }
             </button>
           </div>
         ) : (
-          /* ── Initial add button — pill with cart icon, clearly different ── */
           <button
             onClick={onAdd}
             className="flex items-center gap-1.5 bg-brand text-white font-bold text-sm px-4 py-2.5 rounded-xl active:scale-95 transition-transform shadow-sm"

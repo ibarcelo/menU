@@ -183,14 +183,17 @@ export default function SaveVisitModal({ session, summary, participantId, onClos
 
           {/* Restaurant rating */}
           <div className="bg-orange-50 rounded-2xl px-4 py-4">
-            <input
-              type="text"
-              value={restaurantName}
-              onChange={(e) => setRestaurantName(e.target.value)}
-              placeholder="Nombre del restaurante"
-              maxLength={80}
-              className="w-full font-black text-gray-900 text-base bg-transparent border-b-2 border-orange-200 focus:border-brand focus:outline-none pb-1 mb-1 placeholder:font-normal placeholder:text-gray-400"
-            />
+            <div>
+              <label className="text-xs font-semibold text-orange-400 uppercase tracking-wide block mb-1">Restaurante</label>
+              <input
+                type="text"
+                value={restaurantName}
+                onChange={(e) => setRestaurantName(e.target.value)}
+                placeholder="Nombre del restaurante"
+                maxLength={80}
+                className="w-full font-black text-gray-900 text-base bg-white border-2 border-orange-200 rounded-xl px-3 py-2 focus:border-brand focus:outline-none placeholder:font-normal placeholder:text-gray-400"
+              />
+            </div>
             <p className="text-xs text-gray-400 mb-3">
               {new Date().toLocaleDateString("es-ES", { day: "numeric", month: "long", year: "numeric" })}
             </p>

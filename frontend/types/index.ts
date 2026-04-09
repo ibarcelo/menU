@@ -108,4 +108,5 @@ export const getStorageKey = (sessionId: string) => ({
   participantId: `menu_participant_id_${sessionId}`,
   participantName: `menu_participant_name_${sessionId}`,
   isHost: `menu_is_host_${sessionId}`,
+  setup: `menu_setup_${sessionId}`,       // "pending" while SetupGate not completed
 });

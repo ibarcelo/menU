@@ -4,11 +4,28 @@ import { useEffect, useState, useCallback, Dispatch, SetStateAction } from "reac
 import { ListPlus, Loader2, ChevronDown, ChevronRight } from "lucide-react";
 import toast from "react-hot-toast";
 import { supabase } from "@/lib/supabase";
-import { getMenu, upsertOrder, addMenuItem, updateMenuItem, deleteMenuItem } from "@/lib/api";
+import { getMenu, upsertOrder, addMenuItem, updateMenuItem, deleteMenuItem, getOrders } from "@/lib/api";
 import type { MenuItem, MenuData, Session } from "@/types";
-import MenuItemCard from "./MenuItemCard";
+import MenuItemCard, { type OtherOrderer } from "./MenuItemCard";
 import EditItemModal from "./EditItemModal";
 import OrderCartBar from "../orders/OrderCartBar";
+
+// Stable palette — avoids changing colors on re-render
+const COLORS = [
+  "bg-violet-500",
+  "bg-blue-500",
+  "bg-emerald-500",
+  "bg-pink-500",
+  "bg-indigo-500",
+  "bg-teal-500",
+  "bg-rose-500",
+  "bg-cyan-500",
+];
+
+function colorForParticipant(participantId: string, allIds: string[]): string {
+  const idx = allIds.indexOf(participantId);
+  return COLORS[(idx >= 0 ? idx : 0) % COLORS.length];
+}
 
 interface Props {
   sessionId: string;
@@ -27,11 +44,15 @@ export default function MenuTab({ sessionId, session, participantId, cart, setCa
   const [showAddModal, setShowAddModal] = useState(false);
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
 
+  // itemId → list of OTHER participants who ordered it
+  const [othersMap, setOthersMap] = useState<Record<string, OtherOrderer[]>>({});
+  // stable sorted list of all participant IDs for color assignment
+  const [participantIds, setParticipantIds] = useState<string[]>([]);
+
   function toggleCategory(name: string) {
     setCollapsed((prev) => {
       const next = new Set(prev);
-      if (next.has(name)) next.delete(name);
-      else next.add(name);
+      if (next.has(name)) next.delete(name); else next.add(name);
       return next;
     });
   }
@@ -40,45 +61,86 @@ export default function MenuTab({ sessionId, session, participantId, cart, setCa
     try {
       const data = await getMenu(sessionId);
       setMenuData(data);
-    } catch {
-      // still processing
-    } finally {
-      setLoading(false);
-    }
+    } catch { /* still processing */ }
+    finally { setLoading(false); }
   }, [sessionId]);
 
-  useEffect(() => { loadMenu(); }, [loadMenu]);
+  // Build the othersMap from the full orders summary
+  const loadOthers = useCallback(async () => {
+    try {
+      const summary = await getOrders(sessionId);
+      // Collect all participant IDs sorted for stable color assignment
+      const ids = summary.participants
+        .map((p) => p.participant_id)
+        .sort();
+      setParticipantIds(ids);
 
+      // Build map: itemId → OtherOrderer[]
+      const map: Record<string, OtherOrderer[]> = {};
+      for (const p of summary.participants) {
+        if (p.participant_id === participantId) continue; // skip self
+        const color = colorForParticipant(p.participant_id, ids);
+        for (const item of p.items) {
+          if (item.quantity === 0) continue;
+          if (!map[item.menu_item_id]) map[item.menu_item_id] = [];
+          // avoid duplicates
+          if (!map[item.menu_item_id].some((o) => o.participantId === p.participant_id)) {
+            map[item.menu_item_id].push({
+              participantId: p.participant_id,
+              name: p.participant_name,
+              color,
+            });
+          }
+        }
+      }
+      setOthersMap(map);
+    } catch { /* silent */ }
+  }, [sessionId, participantId]);
+
+  useEffect(() => { loadMenu(); }, [loadMenu]);
+  useEffect(() => { loadOthers(); }, [loadOthers]);
+
+  // Realtime: menu items
   useEffect(() => {
-    const channel = supabase
+    const ch = supabase
       .channel(`menu-${sessionId}`)
       .on("postgres_changes", { event: "*", schema: "public", table: "menu_items", filter: `session_id=eq.${sessionId}` },
         () => loadMenu())
       .subscribe();
-    return () => { supabase.removeChannel(channel); };
+    return () => { supabase.removeChannel(ch); };
   }, [sessionId, loadMenu]);
 
+  // Realtime: my orders (keep cart in sync)
   useEffect(() => {
     if (!participantId) return;
-    const channel = supabase
+    const ch = supabase
       .channel(`my-orders-${participantId}`)
       .on("postgres_changes", { event: "*", schema: "public", table: "orders", filter: `participant_id=eq.${participantId}` },
         (payload) => {
           if (payload.eventType === "DELETE") {
-            setCart((prev) => {
-              const next = { ...prev };
-              delete next[(payload.old as { menu_item_id: string }).menu_item_id];
-              return next;
-            });
+            setCart((prev) => { const n = { ...prev }; delete n[(payload.old as { menu_item_id: string }).menu_item_id]; return n; });
           } else {
-            const order = payload.new as { menu_item_id: string; quantity: number };
-            setCart((prev) => ({ ...prev, [order.menu_item_id]: order.quantity }));
+            const o = payload.new as { menu_item_id: string; quantity: number };
+            setCart((prev) => ({ ...prev, [o.menu_item_id]: o.quantity }));
           }
         })
       .subscribe();
-    return () => { supabase.removeChannel(channel); };
+    return () => { supabase.removeChannel(ch); };
   }, [participantId, setCart]);
 
+  // Realtime: ALL session orders → update othersMap
+  useEffect(() => {
+    const ch = supabase
+      .channel(`session-orders-${sessionId}`)
+      .on("postgres_changes", {
+        event: "*", schema: "public", table: "orders",
+        filter: `session_id=eq.${sessionId}`,
+      }, () => loadOthers())
+      .subscribe();
+    return () => { supabase.removeChannel(ch); };
+  }, [sessionId, loadOthers]);
+
+  // ── Order actions ─────────────────────────────────────
   async function handleQuantityChange(itemId: string, delta: number) {
     const current = cart[itemId] ?? 0;
     const next = Math.max(0, current + delta);
@@ -97,18 +159,14 @@ export default function MenuTab({ sessionId, session, participantId, cart, setCa
       await updateMenuItem(sessionId, item.id, { name: item.name, price: item.price, description: item.description, category: item.category });
       setEditItem(null);
       toast.success("Plato actualizado");
-    } catch {
-      toast.error("No se pudo guardar");
-    }
+    } catch { toast.error("No se pudo guardar"); }
   }
 
   async function handleDelete(itemId: string) {
     try {
       await deleteMenuItem(sessionId, itemId);
       toast.success("Plato eliminado");
-    } catch {
-      toast.error("No se pudo eliminar");
-    }
+    } catch { toast.error("No se pudo eliminar"); }
   }
 
   async function handleAddItem(item: Partial<MenuItem>) {
@@ -116,9 +174,7 @@ export default function MenuTab({ sessionId, session, participantId, cart, setCa
       await addMenuItem(sessionId, item);
       setShowAddModal(false);
       toast.success("Plato añadido");
-    } catch {
-      toast.error("No se pudo añadir");
-    }
+    } catch { toast.error("No se pudo añadir"); }
   }
 
   const totalInCart = Object.values(cart).reduce((s, q) => s + q, 0);
@@ -189,6 +245,7 @@ export default function MenuTab({ sessionId, session, participantId, cart, setCa
                     key={item.id}
                     item={item}
                     quantity={cart[item.id] ?? 0}
+                    others={othersMap[item.id] ?? []}
                     onAdd={() => handleQuantityChange(item.id, 1)}
                     onRemove={() => handleQuantityChange(item.id, -1)}
                     onEdit={() => setEditItem(item)}
@@ -200,7 +257,7 @@ export default function MenuTab({ sessionId, session, participantId, cart, setCa
         );
       })}
 
-      {/* FAB to add a custom dish — floats above cart bar if visible */}
+      {/* FAB — add custom dish */}
       <button
         onClick={() => setShowAddModal(true)}
         className={`fixed right-4 flex items-center gap-2 bg-gray-800 text-white font-bold text-sm px-4 py-3 rounded-2xl shadow-lg z-10 active:scale-95 transition-transform ${
@@ -212,7 +269,6 @@ export default function MenuTab({ sessionId, session, participantId, cart, setCa
         Añadir plato
       </button>
 
-      {/* Cart bar — has both "my order" sheet and "total" tab navigation */}
       {totalInCart > 0 && (
         <OrderCartBar
           sessionId={sessionId}
